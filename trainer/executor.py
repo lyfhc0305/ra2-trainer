@@ -14,6 +14,20 @@ HOOK = 0x540684
 ORIGINAL = bytes.fromhex("89152c0da400")
 
 
+class CommandPending(OSError):
+    """A command was (or may have been) submitted and was not seen to finish.
+
+    The game may still run it later, so its code and data must stay allocated."""
+
+
+class CommandTimeout(CommandPending, TimeoutError):
+    pass
+
+
+class ProcessExited(OSError):
+    pass
+
+
 def relative_jump(source, destination):
     return b"\xe9" + struct.pack("<I", (destination - source - 5) & 0xFFFFFFFF)
 
@@ -108,17 +122,25 @@ class MainThreadExecutor:
         code = build_call_stub(func, this, tuple(args))[:-3] + b"\xc3"
         if not self.proc.patch(self.base + 0x100, code):
             raise OSError("主线程命令写入失败")
+        # From here on the game may pick the command up: any failure leaves
+        # its outcome unknown and the caller must keep the code it points to.
         if not self.proc.write_u32(self.base, 1):
-            raise OSError("主线程命令提交失败")
+            raise CommandPending("主线程命令提交结果未知；命令与参数已保留")
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             state = self.proc.read_u32(self.base)
             if state == 3:
-                return self.proc.read_u32(self.base + 4)
+                result = self.proc.read_u32(self.base + 4)
+                if result is None:
+                    raise OSError("主线程命令已完成，但无法读取返回值")
+                return result
             if state is None:
-                raise OSError("游戏进程已退出")
+                alive = getattr(self.proc, "alive", None)
+                if alive is not None and alive() is False:
+                    raise ProcessExited("游戏进程已退出")
+                raise CommandPending("无法读取主线程命令状态，结果未知；命令与参数已保留")
             time.sleep(0.01)
-        raise TimeoutError("游戏主线程未完成命令（可能暂停）；命令与参数必须保留")
+        raise CommandTimeout("游戏主线程未完成命令（可能暂停）；命令与参数必须保留")
 
     def close(self):
         if not self.installed:

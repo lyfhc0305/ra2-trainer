@@ -34,6 +34,7 @@ for name, result, args in [
     ("CreateRemoteThread", H, (H, P, S, P, P, D, ctypes.POINTER(D))),
     ("WaitForSingleObject", D, (H, D)),
     ("GetExitCodeThread", B, (H, ctypes.POINTER(D))),
+    ("GetExitCodeProcess", B, (H, ctypes.POINTER(D))),
 ]:
     _bind(kernel32, name, result, *args)
 _bind(psapi, "EnumProcessModulesEx", B, H, P, D, ctypes.POINTER(D), D)
@@ -199,6 +200,15 @@ class Process:
         return pids[0][0]
 
     # ---------- raw read/write ----------
+    def alive(self):
+        """True/False when the process state is known, None when it can't be queried.
+
+        A failed ReadProcessMemory alone does not prove the process exited."""
+        code = D()
+        if not self.h or not kernel32.GetExitCodeProcess(self.h, ctypes.byref(code)):
+            return None
+        return code.value == 259  # STILL_ACTIVE
+
     def read(self, addr, size):
         buf = ctypes.create_string_buffer(size)
         got = ctypes.c_size_t(0)

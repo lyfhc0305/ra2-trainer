@@ -191,6 +191,102 @@ class ObjectTests(unittest.TestCase):
         self.assertEqual(units.techno_pointers(p), [])
 
 
+RET = bytes([0xC3])
+
+
+class CommandProc:
+    """Executor mailbox with scripted state reads; everything else succeeds.
+
+    run_block and call each read the idle state once before submitting."""
+    BASE, BLOCK = 0x1F000000, 0x10000000
+
+    def __init__(self, states, submit=True, alive=True, result=7):
+        self.states, self.submit, self._alive, self.result = list(states), submit, alive, result
+        self.freed = []
+
+    def alloc(self, _size):
+        return self.BLOCK
+
+    def free(self, address):
+        self.freed.append(address)
+
+    def patch(self, _address, _data):
+        return True
+
+    def read(self, address, size):
+        return bytes(size)
+
+    def write_u32(self, address, value):
+        return self.submit if address == self.BASE else True
+
+    def read_u32(self, address):
+        if address == self.BASE:
+            return self.states.pop(0) if self.states else 3
+        if address == self.BASE + 4:
+            return self.result
+        return 0
+
+    def alive(self):
+        return self._alive
+
+
+class CommandLifecycleTests(unittest.TestCase):
+    """A submitted command whose outcome is unknown keeps its code block."""
+
+    def run_block(self, proc):
+        from trainer.operations import GameOperations
+        from trainer.executor import MainThreadExecutor
+        ops = GameOperations.__new__(GameOperations)
+        ops.proc = proc
+        ops.executor = MainThreadExecutor(proc)
+        ops.executor.base, ops.executor.installed = proc.BASE, True
+        return ops.run_block(0x100, lambda base: RET, 0, 4, timeout=1.0)
+
+    def test_unreadable_state_while_game_alive_keeps_block(self):
+        from trainer.executor import CommandPending
+        for alive in (True, None):  # alive, or process state unknown
+            proc = CommandProc([0, 0, None], alive=alive)
+            with self.assertRaises(CommandPending):
+                self.run_block(proc)
+            self.assertEqual(proc.freed, [], alive)
+
+    def test_failed_submit_write_keeps_block(self):
+        from trainer.executor import CommandPending
+        proc = CommandProc([0, 0], submit=False)
+        with self.assertRaises(CommandPending):
+            self.run_block(proc)
+        self.assertEqual(proc.freed, [])
+
+    def test_confirmed_exit_or_completion_releases_block(self):
+        from trainer.executor import CommandPending, ProcessExited
+        proc = CommandProc([0, 0, None], alive=False)
+        with self.assertRaises(ProcessExited):
+            self.run_block(proc)
+        self.assertEqual(proc.freed, [proc.BLOCK])
+        proc = CommandProc([0, 0, 3], result=None)  # finished, return value unreadable
+        with self.assertRaises(OSError) as caught:
+            self.run_block(proc)
+        self.assertNotIsInstance(caught.exception, CommandPending)
+        self.assertEqual(proc.freed, [proc.BLOCK])
+        proc = CommandProc([0, 0, 1, 3])
+        self.assertEqual(self.run_block(proc), bytes(4))
+        self.assertEqual(proc.freed, [proc.BLOCK])
+
+    def test_timeout_is_still_a_timeout(self):
+        from trainer.executor import CommandPending
+        proc = CommandProc([0, 0] + [1] * 100000)
+        ops_timeout = 0.05
+        from trainer.operations import GameOperations
+        from trainer.executor import MainThreadExecutor
+        ops = GameOperations.__new__(GameOperations)
+        ops.proc, ops.executor = proc, MainThreadExecutor(proc)
+        ops.executor.base, ops.executor.installed = proc.BASE, True
+        with self.assertRaises(TimeoutError) as caught:
+            ops.run_block(0x100, lambda base: RET, 0, 4, timeout=ops_timeout)
+        self.assertIsInstance(caught.exception, CommandPending)
+        self.assertEqual(proc.freed, [])
+
+
 class RemoteCallTests(unittest.TestCase):
     def test_timeout_does_not_free_running_code(self):
         p = Process.__new__(Process)

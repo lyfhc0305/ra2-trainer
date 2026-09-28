@@ -3,7 +3,7 @@ import struct
 
 from . import units
 from .addresses import HOUSE_VT, INFANTRY_VT, UNIT_VT
-from .executor import MainThreadExecutor
+from .executor import CommandPending, MainThreadExecutor
 
 
 class X86:
@@ -287,7 +287,8 @@ class GameOperations:
         """Run one batched command on the simulation thread from its own block.
 
         build(base) returns code (at base) followed by its data; the bytes at
-        base+result_offset are returned. A timed-out command keeps its block:
+        base+result_offset are returned. A command that may have been submitted
+        but was not seen to finish (timeout, unreadable state) keeps its block:
         the game may still execute it later.
         """
         p, e = self.proc, self.executor
@@ -302,8 +303,8 @@ class GameOperations:
             if len(data) > size or not p.patch(block, data):
                 raise OSError("批量命令写入失败")
             e.call(block, timeout=timeout)
-        except TimeoutError:
-            raise
+        except CommandPending:
+            raise  # the game may still run it: keep the block
         except Exception:
             p.free(block)
             raise
@@ -467,8 +468,8 @@ class GameOperations:
             if not p.patch(block, build(block)):
                 raise OSError("批量命令写入失败")
             count = e.call(block, timeout=10.0)
-        except TimeoutError:
-            raise
+        except CommandPending:
+            raise  # the game may still run it: keep the block
         except Exception:
             p.free(block)
             raise
