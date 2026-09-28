@@ -503,14 +503,17 @@ class InteractionTests(unittest.TestCase):
 
     def test_transfer_is_one_batch(self):
         operation = GameOperations.__new__(GameOperations)
-        operation.proc = object()
+        operation.proc = Mock()
+        # UniqueID at +0x10, Owner at +0x1B4: the snapshot the game thread rechecks.
+        operation.proc.read_u32.side_effect = lambda a: 0x4000 if a & 0xFFF == 0x1B4 else a
         operation.transfer_batch = Mock(return_value=30)
-        selected = [(0x1000 + i * 0x100, 0x7ADDF8) for i in range(30)]
+        selected = [(0x1000 + i * 0x1000, 0x7ADDF8) for i in range(30)]
         with patch.object(units, "selected_technos", return_value=selected), \
              patch.object(units, "valid_techno", return_value=True), \
              patch.object(units, "clear_cache"):
             self.assertEqual(operation.transfer_selected(0x5000), (30, 30))
-        operation.transfer_batch.assert_called_once_with(selected, 0x5000)
+        operation.transfer_batch.assert_called_once_with(
+            [(a, vt, a + 0x10, 0x4000) for a, vt in selected], 0x5000)
 
     def test_too_many_selected_is_refused(self):
         from trainer.operations import MAX_CLONES

@@ -2,7 +2,7 @@
 import struct
 
 from . import units
-from .addresses import HOUSE_VT, INFANTRY_VT, UNIT_VT
+from .addresses import HOUSE_VT, INFANTRY_VT, TECHNO_FIELD, UNIT_VT
 from .executor import CommandPending, MainThreadExecutor
 
 
@@ -421,26 +421,45 @@ class GameOperations:
         return out
 
     def transfer_batch(self, objects, house):
-        """Change the owner of every (object, vtable) in one game frame; returns successes."""
+        """Change the owner of every snapshot record in one game frame; returns successes.
+
+        objects are (object, vtable, unique_id, owner) taken at the click. The game
+        thread skips a record unless all four still match and the object is alive,
+        so an object destroyed and replaced by another of the same class at the
+        same address, or captured meanwhile, is left alone. The target house is
+        rechecked there too, since a paused command may run much later.
+        """
         if self.proc.read_u32(house) != HOUSE_VT:
             raise RuntimeError("目标势力无效")
         n = len(objects)
         records_at = 0x100
+        record = 16
 
         def build(block):
+            records = block + records_at
             a = X86()
             a.emit("56 53 31 db 31 f6")  # ESI = index, EBX = successes
+            a.emit("81 3d")
+            a.code += struct.pack("<II", house, HOUSE_VT)
+            a.jump("0f 85", "invalid")  # target house gone (match changed)
             a.label("next")
             a.imm("81 fe", n)
             a.jump("0f 8d", "done")
-            a.emit("8b 0c f5")
-            a.code += struct.pack("<I", block + records_at)  # object
-            a.emit("8b 04 f5")
-            a.code += struct.pack("<I", block + records_at + 4)  # expected vtable
+            a.emit("89 f2 c1 e2 04")  # EDX = index * 16
+            a.imm("8b 8a", records)  # ECX = object
             a.emit("85 c9")
             a.jump("0f 84", "skip")
-            a.emit("39 01")
-            a.jump("0f 85", "skip")  # object gone or reused since the click
+            a.imm("8b 82", records + 4)
+            a.emit("39 01")  # vtable
+            a.jump("0f 85", "skip")
+            a.imm("8b 82", records + 8)
+            a.emit("39 41 10")  # AbstractUniqueID: same class at the same address
+            a.jump("0f 85", "skip")
+            a.imm("8b 82", records + 12)
+            a.emit("39 81 b4 01 00 00")  # Owner unchanged since the click
+            a.jump("0f 85", "skip")
+            a.emit("83 79 6c 00")  # Health > 0
+            a.jump("0f 8e", "skip")
             a.emit("6a 01")
             a.imm("68", house)
             a.emit("8b 01 ff 90 78 03 00 00 84 c0")  # SetOwningHouse(house, 1)
@@ -449,14 +468,15 @@ class GameOperations:
             a.label("skip")
             a.emit("46")
             a.jump("e9", "next")
+            a.label("invalid")
+            a.emit("bb ff ff ff ff")
             a.label("done")
             a.emit("89 d8 5b 5e c3")
             code = a.finish()
-            data = b"".join(struct.pack("<II", obj, vt) for obj, vt in objects)
+            data = b"".join(struct.pack("<IIII", *rec) for rec in objects)
             return code.ljust(records_at, b"\xcc") + data + bytes(4)
 
-        size = records_at + 8 * n + 4
-        # The count is returned in EAX; also verified by reading nothing extra.
+        size = records_at + record * n + 4
         p, e = self.proc, self.executor
         e.install()
         if p.read_u32(e.base) not in (0, 3):
@@ -474,14 +494,21 @@ class GameOperations:
             p.free(block)
             raise
         p.free(block)
-        return count or 0
+        if count == 0xFFFFFFFF:
+            raise RuntimeError("目标势力已失效（战局可能已切换），未转移")
+        return count
 
     def transfer_selected(self, house):
-        selected = units.selected_technos(self.proc)
+        p = self.proc
+        selected = units.selected_technos(p)
         if not selected:
             raise ValueError("请先选中要转移控制权的单位或建筑")
-        valid = [(a, vt) for a, vt in selected if units.valid_techno(self.proc, a, vt)]
-        count = self.transfer_batch(valid, house) if valid else 0
+        snapshot = []
+        for a, vt in selected:
+            unique_id, owner = p.read_u32(a + 0x10), p.read_u32(a + TECHNO_FIELD["Owner"])
+            if unique_id is not None and owner and units.valid_techno(p, a, vt):
+                snapshot.append((a, vt, unique_id, owner))
+        count = self.transfer_batch(snapshot, house) if snapshot else 0
         units.clear_cache(self.proc)
         return count, len(selected)
 

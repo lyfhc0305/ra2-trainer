@@ -82,39 +82,57 @@ class BatchCommandTests(unittest.TestCase):
         self.assertEqual(len(orders), 3)
         self.assertTrue(all(a[0] == 8 and a[1] == 0 and a[2] in (B1, B2) and a[3] == 0 for _, a in orders))
 
-    def test_transfer_batch(self):
-        global okT
-        # ---------- transfer ----------
-        mu=machine(); SETOWN=0x30005000; UVT=0x7ADDF8
+    def run_transfer(self, records, house_vt=HOUSE_VT):
+        """Run transfer_batch's real code on the emulator; returns (count, changed objects, abi ok)."""
+        mu=machine(); SETOWN=0x30005000; UVT=0x7ADDF8; HOUSE=0x20000000
+        mu.mem_map(HOUSE,0x1000); mu.mem_write(HOUSE,struct.pack('<I',house_vt))
         mu.mem_write(UVT+0x378,struct.pack('<I',SETOWN)); mu.mem_write(SETOWN,b'\xc3')
-        objs=[0x30100000+i*0x1000 for i in range(4)]
-        for o in objs: mu.mem_write(o,struct.pack('<I',UVT))
-        mu.mem_write(objs[2],struct.pack('<I',0x12345678))  # recycled
+        for obj,vt,uid,owner,hp in records:
+            mu.mem_write(obj,struct.pack('<I',vt)); mu.mem_write(obj+0x10,struct.pack('<I',uid))
+            mu.mem_write(obj+0x1b4,struct.pack('<I',owner)); mu.mem_write(obj+0x6c,struct.pack('<i',hp))
         changed=[]
-        def hook2(uc,a,s,d):
+        def hook(uc,a,s,d):
             if a==SETOWN:
                 esp=uc.reg_read(UC_X86_REG_ESP); h,f=struct.unpack('<II',uc.mem_read(esp+4,8))
-                changed.append((uc.reg_read(UC_X86_REG_ECX),h,f)); ret(uc,1,8)
+                changed.append(uc.reg_read(UC_X86_REG_ECX)); ret(uc,1,8)
             elif a==0x7F000100: uc.emu_stop()
-        mu.hook_add(UC_HOOK_CODE,hook2)
-        # reuse transfer_batch's builder by calling it with a fake proc capturing data
+        mu.hook_add(UC_HOOK_CODE,hook)
+        abi=[]
         class FakeProc:
-            def __init__(s): s.mem={}
-            def read_u32(s,a): return HOUSE_VT if a==0x20000000 else 0
+            def read_u32(s,a): return HOUSE_VT if a==HOUSE else (3 if a==FakeExec.base else 0)
             def alloc(s,n): return 0x10000000
-            def patch(s,a,d): s.data=(a,d); return True
+            def patch(s,a,d): s.data=d; return True
             def free(s,a): pass
         class FakeExec:
             base=0x1f000000
             def install(s): pass
             def call(s,f,timeout=0):
-                mu.mem_write(f,fp.data[1]); globals()['okT']=call(mu,f); return mu.reg_read(UC_X86_REG_EAX)
+                mu.mem_write(f,fp.data); abi.append(call(mu,f)); return mu.reg_read(UC_X86_REG_EAX)
         fp=FakeProc(); op=O.GameOperations.__new__(O.GameOperations); op.proc=fp; op.executor=FakeExec()
-        fp.read_u32=lambda a: HOUSE_VT if a==0x20000000 else (3 if a==FakeExec.base else 0)
-        count=op.transfer_batch([(o,UVT) for o in objs],0x20000000)
-        self.assertTrue(okT)
-        self.assertEqual(count, 3)
-        self.assertEqual([c[0] for c in changed], [objs[0], objs[1], objs[3]])
+        return op, HOUSE, changed, abi
+
+    def test_transfer_batch(self):
+        UVT=0x7ADDF8; ME=0x20000800
+        objs=[0x30100000+i*0x1000 for i in range(6)]
+        snapshot=[(o,UVT,100+i,ME) for i,o in enumerate(objs)]
+        memory=[(objs[0],UVT,100,ME,50),
+                (objs[1],UVT,101,ME,50),
+                (objs[2],0x12345678,102,ME,50),  # replaced by another class
+                (objs[3],UVT,999,ME,50),         # same class, same address, new object
+                (objs[4],UVT,104,0x20000900,50), # captured since the click
+                (objs[5],UVT,105,ME,0)]          # dead
+        op,house,changed,abi=self.run_transfer(memory)
+        self.assertEqual(op.transfer_batch(snapshot,house), 2)
+        self.assertEqual(abi, [True])
+        self.assertEqual(changed, objs[:2])
+
+    def test_transfer_batch_rechecks_target_house_in_game(self):
+        UVT=0x7ADDF8; obj=0x30100000
+        op,house,changed,abi=self.run_transfer([(obj,UVT,1,0x20000800,50)], house_vt=0)
+        with self.assertRaises(RuntimeError):
+            op.transfer_batch([(obj,UVT,1,0x20000800)],house)
+        self.assertEqual(abi, [True])
+        self.assertEqual(changed, [])
 
 
 okT = False
