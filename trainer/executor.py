@@ -105,9 +105,9 @@ class MainThreadExecutor:
             finally:
                 self.proc.resume_all(held)
         except Exception:
-            # The hook is only live after a verified write; otherwise the
-            # block was never reachable and can be released.
-            if self.proc.read(HOOK, len(ORIGINAL)) != patch:
+            # Release the block only when the entry verifiably holds the
+            # original bytes; a full or partial jump may still reach it.
+            if self.proc.read(HOOK, len(ORIGINAL)) == ORIGINAL:
                 self.proc.free(base)
             raise
         self.base, self.patch = base, patch

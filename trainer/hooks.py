@@ -6,6 +6,7 @@ and bytes changed by another program are never overwritten. Detached blocks
 stay allocated: a thread may still return through them.
 """
 from .executor import relative_jump, release_orphan
+from .mem import PatchResidue
 
 
 def entry_jump(address, target, length):
@@ -99,7 +100,12 @@ class HookSites:
             if current != original:
                 raise RuntimeError(f"{self.label}入口已被外部修改")
             replacement = self.replacement(name)
-            self.proc.patch_quiescent(address, original, replacement)
+            try:
+                self.proc.patch_quiescent(address, original, replacement)
+            except PatchResidue as exc:
+                if exc.current == replacement:
+                    self.installed[name] = replacement  # live: keep it owned so it can be removed
+                raise
             self.installed[name] = replacement
             return True
         if not installed:
@@ -116,19 +122,26 @@ class HookSites:
         wanted = set(wanted)
         if wanted:
             self.prepare()
-        changed = []
+        before = set(self.installed)
         try:
             for name in self.sites:
-                if self.switch(name, name in wanted):
-                    changed.append(name)
+                self.switch(name, name in wanted)
             if after:
                 after()
-        except Exception:
-            for name in reversed(changed):
+        except Exception as exc:
+            # Roll back every site whose ownership changed, including one a
+            # failed write left fully installed; report whatever stays behind.
+            residue = []
+            for name in reversed(list(self.sites)):
+                if (name in self.installed) == (name in before):
+                    continue
                 try:
-                    self.switch(name, name not in wanted)
+                    self.switch(name, name in before)
                 except Exception:
-                    pass  # report the original failure, not the rollback's
+                    residue.append(name)
+            if residue:
+                raise RuntimeError(
+                    f"{exc}；回滚未完成，{self.label}仍残留入口：{'、'.join(residue)}") from exc
             raise
 
     def close(self):

@@ -1,5 +1,6 @@
 """Version-gated patches with ownership and rollback."""
 from .addresses import PATCHES
+from .mem import PatchResidue
 
 
 class PatchManager:
@@ -34,16 +35,25 @@ class PatchManager:
                     raise RuntimeError("补丁地址已被其他程序修改")
                 # Game threads are paused so none executes a half-written
                 # instruction; a failed write is rolled back by patch_quiescent.
-                self.proc.patch_quiescent(va, before, after)
+                try:
+                    self.proc.patch_quiescent(va, before, after)
+                except PatchResidue as exc:
+                    if exc.current == after:
+                        changed.append((va, before, after))  # fully written: roll back below
+                    raise
                 changed.append((va, before, after))
             for va, before, after in changed:
                 self.owned[va] = (fid, before, after)
-        except Exception:
+        except Exception as exc:
+            residue = []
             for va, before, after in reversed(changed):
                 try:
                     self.proc.patch_quiescent(va, after, before)
                 except Exception:
                     self.owned[va] = (fid, before, after)  # retain ownership
+                    residue.append(f"0x{va:X}")
+            if residue:
+                raise RuntimeError(f"{exc}；回滚未完成，仍残留补丁：{'、'.join(residue)}") from exc
             raise
 
     def disable(self, fid):

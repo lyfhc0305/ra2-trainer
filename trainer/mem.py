@@ -43,6 +43,17 @@ _bind(psapi, "GetModuleBaseNameW", D, H, H, wt.LPWSTR, D)
 INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
 
 
+class PatchResidue(OSError):
+    """A code write failed and the original bytes could not be restored.
+
+    current holds what is at address now (None when unreadable); the caller
+    must keep treating the site, and any block it may jump to, as live."""
+
+    def __init__(self, message, address, current):
+        super().__init__(message)
+        self.address, self.current = address, current
+
+
 def build_call_stub(func, this=0, args=()):
     """x86 WINAPI thread entry; preserve nonvolatile registers and clean its argument."""
     values = [func, this, *args]
@@ -393,7 +404,11 @@ class Process:
                 if not busy:
                     if not self.patch(addr, replacement) or self.read(addr, len(expected)) != replacement:
                         self.patch(addr, expected)
-                        raise OSError("钩子写入校验失败")
+                        current = self.read(addr, len(expected))
+                        if current != expected:
+                            raise PatchResidue(
+                                f"钩子写入失败且未能恢复原字节（0x{addr:X}），入口状态未知", addr, current)
+                        raise OSError("钩子写入校验失败，已恢复原字节")
                     return
             finally:
                 self.resume_all(held)
@@ -476,13 +491,20 @@ class Process:
         return bool(ok), old.value
 
     def patch(self, addr, data, protect=0x40):  # PAGE_EXECUTE_READWRITE
+        """True only when the bytes were written, the old page protection restored
+        and the instruction cache flushed.
+
+        False does not prove the bytes are unchanged: callers writing reachable
+        code (entry sites) must read back, as patch_quiescent does."""
         ok, old = self.virtual_protect(addr, len(data), protect)
         if not ok:
             return False
-        res = self.write(addr, data)
-        self.virtual_protect(addr, len(data), old)
-        kernel32.FlushInstructionCache(self.h, ctypes.c_void_p(addr), len(data))
-        return res
+        try:
+            res = self.write(addr, data)
+        finally:
+            restored, _ = self.virtual_protect(addr, len(data), old)
+        flushed = kernel32.FlushInstructionCache(self.h, ctypes.c_void_p(addr), len(data))
+        return bool(res and restored and flushed)
 
     def read_bytes(self, addr, size):
         return self.read(addr, size)
