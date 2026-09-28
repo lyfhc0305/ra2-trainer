@@ -1,5 +1,6 @@
 import struct
 import unittest
+from unittest.mock import patch
 
 from test_core import HookMemory, ROOT, PE, disasm_checked
 from trainer import techno_ai as T
@@ -59,6 +60,17 @@ class TechnoAITests(unittest.TestCase):
         c.set("auto_repair", False)
         self.assertEqual(self.p.read(T.AI_ENTRY, 6), T.AI_ORIGINAL)
         self.assertEqual(self.settings(), T.settings_bytes(0, 0, 0))
+
+    def test_rejected_amount_is_not_applied_later(self):
+        c = T.TechnoAIController(self.p, 10)
+        c.set("auto_repair", True)
+        with patch.object(self.p, "write", return_value=False):
+            with self.assertRaises(OSError):
+                c.set_amount(50)
+        self.assertEqual(c.repair_amount, 10)
+        self.p.patch(self.base, bytes(16))  # settings lost: the periodic check rewrites them
+        c.set("auto_repair", True)
+        self.assertEqual(self.settings(), T.settings_bytes(0, 1, 10))
 
     def test_periodic_reapply_restores_lost_settings(self):
         c = T.TechnoAIController(self.p)

@@ -23,6 +23,13 @@ ID_OFFSET = 0x24  # AbstractTypeClass::ID, e.g. "HTNK"
 
 
 class TypeEditor:
+    """originals[(typ, off, kind)] = (initial, written, identity).
+
+    written is a tuple of the values this editor may have left in memory: one
+    value after a verified write, or the previous and attempted values when a
+    failed write left the outcome unknown. restore() only overwrites those.
+    """
+
     def __init__(self, proc):
         self.proc = proc
         self.originals = {}
@@ -46,8 +53,9 @@ class TypeEditor:
         value = float(text) if mode == "multiplier" else int(text, 0)
         if not math.isfinite(value) or not lo <= value <= hi:
             raise ValueError(f"请输入 {lo} 到 {hi} 之间的数值")
-        targets = self.targets()
-        for typ in targets:
+        # Check every target before writing any, so a bad one changes nothing.
+        plans = []
+        for typ in self.targets():
             key = (typ, off, kind)
             old = self.proc.read_value(typ + off, kind)
             if old is None:
@@ -58,18 +66,31 @@ class TypeEditor:
             saved = self.originals.get(key)
             if saved and saved[2] != identity:
                 saved = None  # same address, different type since a reload
-            initial, _last, identity = saved or (old, old, identity)
+            initial = saved[0] if saved else old
             if mode == "multiplier":
                 # A type that cannot move (speed 0) stays immobile.
                 changed = min(255, max(1, round(initial * value))) if initial else 0
             else:
                 changed = 1 - value if mode == "inverse" else value
-            self.originals[key] = (initial, changed, identity)
-            if not self.proc.write_value(typ + off, changed, kind):
-                raise OSError("类型属性写入失败")
-            if self.proc.read_value(typ + off, kind) != changed:
-                raise OSError("类型属性读回校验失败")
-        return len(targets)
+            plans.append((key, old, initial, changed, identity, saved))
+        for key, old, initial, changed, identity, saved in plans:
+            typ = key[0]
+            ok = self.proc.write_value(typ + off, changed, kind)
+            current = self.proc.read_value(typ + off, kind)
+            if ok and current == changed:
+                self.originals[key] = (initial, (changed,), identity)
+                continue
+            # Record only what memory may now hold; never drop the original.
+            if current == changed:
+                written = (changed,)
+            elif current == old:
+                written = saved[1] if saved else None
+            else:
+                written = tuple(dict.fromkeys((saved[1] if saved else ()) + (old, changed)))
+            if written:
+                self.originals[key] = (initial, written, identity)
+            raise OSError("类型属性写入失败" if not ok else "类型属性读回校验失败")
+        return len(plans)
 
     def read(self, fid):
         off, kind, _lo, _hi, mode = TYPE_FEATURES[fid]
@@ -86,16 +107,25 @@ class TypeEditor:
         return value
 
     def restore(self):
-        count = 0
-        for key, (initial, last, identity) in list(self.originals.items()):
+        """Restore every record independently; keep failed ones and report the first."""
+        count, error = 0, None
+        for key, (initial, written, identity) in list(self.originals.items()):
             typ, off, kind = key
-            if self._identity(typ) == identity:
-                current = self.proc.read_value(typ + off, kind)
-                if current == last:
-                    if not self.proc.write_value(typ + off, initial, kind):
-                        raise OSError("类型属性还原失败")
-                    count += 1
-                elif current != initial:
-                    raise RuntimeError("类型属性被外部修改，未覆盖")
-            del self.originals[key]
+            try:
+                if self._identity(typ) == identity:
+                    current = self.proc.read_value(typ + off, kind)
+                    if current is None:
+                        raise OSError("类型属性读取失败，未还原")
+                    if current != initial:
+                        if current not in written:
+                            raise RuntimeError("类型属性被外部修改，未覆盖")
+                        if (not self.proc.write_value(typ + off, initial, kind)
+                                or self.proc.read_value(typ + off, kind) != initial):
+                            raise OSError("类型属性还原失败")
+                        count += 1
+                del self.originals[key]  # restored, already original, or type gone
+            except Exception as exc:
+                error = error or exc
+        if error:
+            raise error
         return count

@@ -157,6 +157,43 @@ class TypeEditorTests(unittest.TestCase):
         self.e.write("u_speed", "3")
         self.assertEqual(self.p.read_u32(self.TYP + 0x5A0), 0)
 
+    def test_failed_second_write_keeps_the_committed_record(self):
+        self.e.write("u_speed", "2")  # 6 -> 12
+        with unittest.mock.patch.object(self.p, "write_value", return_value=False):
+            with self.assertRaises(OSError):
+                self.e.write("u_speed", "3")  # 18 never lands
+        self.assertEqual(self.p.read_u32(self.TYP + 0x5A0), 12)
+        self.assertEqual(self.e.restore(), 1)  # 12 is still recognised as ours
+        self.assertEqual(self.p.read_u32(self.TYP + 0x5A0), 6)
+
+    def test_unknown_write_outcome_accepts_either_value(self):
+        self.e.write("u_speed", "2")  # 6 -> 12
+        real_read = self.p.read_value
+        with unittest.mock.patch.object(self.p, "write_value", return_value=False), \
+             unittest.mock.patch.object(self.p, "read_value",
+                                        side_effect=[12, None]):  # plan, read-back
+            with self.assertRaises(OSError):
+                self.e.write("u_speed", "3")
+        self.assertEqual(self.e.originals[(self.TYP, 0x5A0, "i32")][1], (12, 18))
+        self.p.patch(self.TYP + 0x5A0, struct.pack("<i", 18))  # it did land after all
+        self.assertEqual(real_read(self.TYP + 0x5A0, "i32"), 18)
+        self.assertEqual(self.e.restore(), 1)
+        self.assertEqual(self.p.read_u32(self.TYP + 0x5A0), 6)
+
+    def test_restore_continues_past_a_conflict(self):
+        second = 0x4000
+        self.p.patch(second, struct.pack("<I", next(iter(TYPE_VT))))
+        self.p.patch(second + typeedit.ID_OFFSET, b"MTNK".ljust(25, b"\0"))
+        self.p.patch(second + 0x5A0, struct.pack("<i", 6))
+        self.e.targets = lambda: [self.TYP, second]
+        self.e.write("u_speed", "2")
+        self.p.patch(self.TYP + 0x5A0, struct.pack("<i", 99))  # changed by someone else
+        with self.assertRaises(RuntimeError):
+            self.e.restore()
+        self.assertEqual(self.p.read_u32(second + 0x5A0), 6)
+        self.assertEqual(self.p.read_u32(self.TYP + 0x5A0), 99)
+        self.assertEqual(list(self.e.originals), [(self.TYP, 0x5A0, "i32")])  # kept for a retry
+
 
 class HookSitesTests(unittest.TestCase):
     SITES = {"a": (0x401000, bytes.fromhex("8bec83ec10"), 0x100),

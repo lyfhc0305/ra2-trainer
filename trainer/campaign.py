@@ -108,7 +108,8 @@ class CampaignController:
         self.proc, self.executor = proc, executor
         self.hooks = HookSites(proc, "任务计时", {"frame": (FRAME_ENTRY, FRAME_ORIGINAL, CODE_OFFSET)},
                                build_block)
-        self.scenario_originals = {}  # campaign entry address -> (id, original bytes)
+        # campaign entry address -> (id, original bytes, names this trainer may have written)
+        self.scenario_originals = {}
         self.starts = {}
 
     # ---- mission timer ----
@@ -183,10 +184,14 @@ class CampaignController:
             original = current.split(b"\0", 1)[0]
             if not original.upper().endswith(b".MAP"):
                 raise RuntimeError("战役起始关卡格式不符，未修改")
-            self.scenario_originals[entry] = (campaign, original)
+            self.scenario_originals[entry] = (campaign, original, ())
         wanted = (names[number - 1] + ".MAP").encode()
+        _campaign, original, written = self.scenario_originals[entry]
         if not self.proc.write(entry + CAMPAIGN_SCENARIO, wanted + b"\0"):
+            # The outcome is unknown: accept either name when restoring.
+            self.scenario_originals[entry] = (campaign, original, written + (wanted,))
             raise OSError("战役起始关卡写入失败")
+        self.scenario_originals[entry] = (campaign, original, (wanted,))
         self.starts[campaign] = number
         return names[number - 1]
 
@@ -201,10 +206,28 @@ class CampaignController:
         return names.index(stem) + 1 if stem in names else 1
 
     def restore_starts(self):
-        for entry, (campaign, original) in list(self.scenario_originals.items()):
-            if self.proc.read_cstr(entry + CAMPAIGN_ID, 25) == campaign:
-                self.proc.write(entry + CAMPAIGN_SCENARIO, original + b"\0")
-            del self.scenario_originals[entry]
+        """Restore each campaign independently; keep failed records and report the first."""
+        error = None
+        for entry, (campaign, original, written) in list(self.scenario_originals.items()):
+            try:
+                if self.proc.read_cstr(entry + CAMPAIGN_ID, 25) == campaign:
+                    raw = self.proc.read(entry + CAMPAIGN_SCENARIO, 32)
+                    if raw is None:
+                        raise OSError("无法读取战役起始关卡，未还原")
+                    current = raw.split(b"\0", 1)[0]
+                    if current != original:
+                        if current not in written:
+                            raise RuntimeError("战役起始关卡被外部修改，未覆盖")
+                        if (not self.proc.write(entry + CAMPAIGN_SCENARIO, original + b"\0")
+                                or self.proc.read(entry + CAMPAIGN_SCENARIO, len(original) + 1)
+                                != original + b"\0"):
+                            raise OSError("战役起始关卡还原失败")
+                del self.scenario_originals[entry]  # restored, already original, or entry gone
+                self.starts.pop(campaign, None)
+            except Exception as exc:
+                error = error or exc
+        if error:
+            raise error
         self.starts.clear()
 
     def close(self):
@@ -213,6 +236,9 @@ class CampaignController:
             self.set_freeze(False)
         except Exception as exc:
             error = exc
-        self.restore_starts()
+        try:
+            self.restore_starts()
+        except Exception as exc:
+            error = error or exc
         if error:
             raise error

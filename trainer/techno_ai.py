@@ -157,10 +157,12 @@ class TechnoAIController:
     def set_amount(self, amount):
         if not 0 <= amount <= MAX_STRENGTH:
             raise ValueError("修理量超出范围")
-        self.repair_amount = amount
+        # Commit locally only after the game accepted it: a rejected value must
+        # not be pushed later by the periodic settings check.
         if self.hooks.base is not None and self.enabled:
             if not self.proc.write(self.hooks.base + 8, struct.pack("<I", amount)):
                 raise OSError("修理量写入失败")
+        self.repair_amount = amount
 
     def close(self):
         self._sync(())

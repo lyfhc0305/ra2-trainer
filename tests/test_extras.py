@@ -161,6 +161,43 @@ class ControllerTests(unittest.TestCase):
         c.restore_starts()
         self.assertEqual(p.read_cstr(entries["SOV1"] + C.CAMPAIGN_SCENARIO, 32), "SOV01T.MAP")
 
+    def campaigns(self):
+        p = Memory()
+        entries = {"ALL1": 0x5001000, "SOV1": 0x5002000}
+        p.patch(C.CAMPAIGN_ITEMS, struct.pack("<I", 0x4000000))
+        p.patch(C.CAMPAIGN_COUNT, struct.pack("<I", 2))
+        p.patch(0x4000000, struct.pack("<II", *entries.values()))
+        for ident, entry in entries.items():
+            p.patch(entry + C.CAMPAIGN_ID, ident.encode() + b"\0" * 21)
+            p.patch(entry + C.CAMPAIGN_SCENARIO, f"{ident[:3]}01T.MAP".encode() + b"\0" * 24)
+        p.write = lambda a, d: p.patch(a, d)
+        c = C.CampaignController(p, Mock())
+        c.set_start("ALL1", 3)
+        c.set_start("SOV1", 9)
+        return p, c, entries
+
+    def test_failed_start_restore_keeps_the_record(self):
+        p, c, entries = self.campaigns()
+        sov = entries["SOV1"]
+        p.write = lambda a, d: False if a == sov + C.CAMPAIGN_SCENARIO else p.patch(a, d)
+        with self.assertRaises(OSError):
+            c.restore_starts()
+        self.assertEqual(p.read_cstr(entries["ALL1"] + C.CAMPAIGN_SCENARIO, 32), "ALL01T.MAP")
+        self.assertEqual(list(c.scenario_originals), [sov])  # retry possible
+        p.write = lambda a, d: p.patch(a, d)
+        c.restore_starts()
+        self.assertEqual(p.read_cstr(sov + C.CAMPAIGN_SCENARIO, 32), "SOV01T.MAP")
+        self.assertEqual((c.scenario_originals, c.starts), ({}, {}))
+
+    def test_external_start_change_is_not_overwritten(self):
+        p, c, entries = self.campaigns()
+        all1 = entries["ALL1"]
+        p.patch(all1 + C.CAMPAIGN_SCENARIO, b"MYMOD.MAP\0")
+        with self.assertRaises(RuntimeError):
+            c.restore_starts()
+        self.assertEqual(p.read_cstr(all1 + C.CAMPAIGN_SCENARIO, 32), "MYMOD.MAP")
+        self.assertEqual(p.read_cstr(entries["SOV1"] + C.CAMPAIGN_SCENARIO, 32), "SOV01T.MAP")
+
     def test_win_calls_native_on_player(self):
         p = Memory()
         p.patch(C.PLAYER_PTR, struct.pack("<I", 0x6000000))
