@@ -1401,6 +1401,28 @@ class MainWindow(QMainWindow):
             raise ValueError("设置文件格式不正确")
         return data
 
+    def _update_state(self, change):
+        """Read-modify-write the settings file; never replace a file that could not be read.
+
+        A corrupt file is moved aside (kept, not deleted) before starting a new
+        one; an unreadable file (locked, no permission) blocks the save."""
+        try:
+            data = self._read_state()
+        except (ValueError, UnicodeDecodeError) as exc:  # JSONDecodeError is a ValueError
+            broken = STATE_FILE + ".broken"
+            try:
+                os.replace(STATE_FILE, broken)
+            except OSError as move_error:
+                self.log(f"设置文件已损坏且无法备份，未保存：{move_error}")
+                return False
+            self.log(f"设置文件已损坏，原文件另存为 {os.path.basename(broken)}，已新建：{exc}")
+            data = {}
+        except OSError as exc:
+            self.log(f"读取设置文件失败，未保存（避免覆盖已有设置）：{exc}")
+            return False
+        change(data)
+        return self._write_state(data)
+
     def save_state(self):
         """Only the “保存当前功能状态” button calls this: nothing else persists switches."""
         data = {k: bool(v) for k, v in self.enabled.items()}
@@ -1412,22 +1434,18 @@ class MainWindow(QMainWindow):
         data["_values"] = {fid: row.input.text() for fid, row in self.rows.items()
                            if fid != "airport_slots" and row.input is not None
                            and row.feat["kind"] == "value"}
-        try:
-            profiles = self._read_state().get("_profiles")
-        except Exception:
-            profiles = None
-        if isinstance(profiles, dict):
-            data["_profiles"] = profiles  # saved profiles are not part of the switch state
-        return self._write_state(data)
+
+        def change(saved):
+            profiles = saved.get("_profiles")
+            saved.clear()
+            saved.update(data)
+            if isinstance(profiles, dict):
+                saved["_profiles"] = profiles  # saved profiles are not part of the switch state
+        return self._update_state(change)
 
     def _save_hotkeys(self):
         """Store hotkeys alone; the saved feature state in the file stays as it was."""
-        try:
-            data = self._read_state()
-        except Exception:
-            data = {}
-        data["_hotkeys"] = self.hotkey_mapping
-        return self._write_state(data)
+        return self._update_state(lambda data: data.__setitem__("_hotkeys", self.hotkey_mapping))
 
     def _restore_state(self):
         try:
@@ -1507,15 +1525,14 @@ class MainWindow(QMainWindow):
                 self.apply_profile(name, profile)
 
     def save_profile(self, name):
-        try:
-            data = self._read_state()
-        except Exception:
-            data = {}
-        profiles = data.get("_profiles") if isinstance(data.get("_profiles"), dict) else {}
-        profiles[name] = self.current_profile()
-        data["_profiles"] = profiles
-        if self._write_state(data):
-            self.log(f"已保存功能方案“{name}”（{len(profiles[name]['enabled'])} 个开关）")
+        profile = self.current_profile()
+
+        def change(data):
+            profiles = data.get("_profiles") if isinstance(data.get("_profiles"), dict) else {}
+            profiles[name] = profile
+            data["_profiles"] = profiles
+        if self._update_state(change):
+            self.log(f"已保存功能方案“{name}”（{len(profile['enabled'])} 个开关）")
 
     def delete_profile(self, name):
         try:

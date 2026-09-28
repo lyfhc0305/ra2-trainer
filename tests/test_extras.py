@@ -345,6 +345,29 @@ class ProfileTests(unittest.TestCase):
         self.assertTrue(w.save_state())
         self.assertIn("我的", w._user_profiles())
 
+    def test_unreadable_state_file_is_never_overwritten(self):
+        w, app_module = self.window()
+        w.save_profile("我的")
+        with open(app_module.STATE_FILE, encoding="utf-8") as f:
+            before = f.read()
+        with patch.object(w, "_read_state", side_effect=PermissionError("locked")):
+            self.assertFalse(w.save_state())
+            self.assertFalse(w._save_hotkeys())
+            w.save_profile("另一个")
+        with open(app_module.STATE_FILE, encoding="utf-8") as f:
+            self.assertEqual(f.read(), before)
+
+    def test_corrupt_state_file_is_kept_aside(self):
+        import os
+        w, app_module = self.window()
+        with open(app_module.STATE_FILE, "w", encoding="utf-8") as f:
+            f.write("{broken")
+        w.save_profile("我的")
+        with open(app_module.STATE_FILE + ".broken", encoding="utf-8") as f:
+            self.assertEqual(f.read(), "{broken")
+        self.assertIn("我的", w._user_profiles())
+        self.assertTrue(os.path.exists(app_module.STATE_FILE))
+
     def test_attached_profile_turns_every_switch_off(self):
         w, app_module = self.window()
         w.proc = Mock()
