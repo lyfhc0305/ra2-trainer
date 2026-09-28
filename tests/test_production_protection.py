@@ -3,14 +3,14 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from test_core import HookMemory, ROOT, PE, Cs, CS_ARCH_X86, CS_MODE_32, disasm_checked
+from test_core import HookMemory, Cs, CS_ARCH_X86, CS_MODE_32, disasm_checked, game_exe
 from trainer import production, protection
 from trainer.app import MainWindow
 
 
 class NewHookTests(unittest.TestCase):
     def test_originals_match_complete_instructions_in_game(self):
-        pe = PE(str(ROOT.parent / "游戏本体" / "game.exe"))
+        pe = game_exe()
         sites = list(production.SITES.values()) + list(protection.SITES.items())
         for address, original in sites:
             self.assertEqual(pe.read(address, len(original)), original)

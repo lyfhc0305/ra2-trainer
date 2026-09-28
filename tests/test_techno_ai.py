@@ -1,7 +1,7 @@
 import struct
 import unittest
 
-from test_core import HookMemory, ROOT, PE, disasm_checked
+from test_core import HookMemory, disasm_checked, game_exe
 from trainer import techno_ai as T
 
 
@@ -20,7 +20,7 @@ class TechnoAITests(unittest.TestCase):
         return self.p.read(self.base, 16)
 
     def test_entry_matches_game_and_every_class_reaches_it(self):
-        pe = PE(str(ROOT.parent / "游戏本体" / "game.exe"))
+        pe = game_exe()
         self.assertEqual(pe.read(T.AI_ENTRY, len(T.AI_ORIGINAL)), T.AI_ORIGINAL)
         # Slot 23 is AI: Unit/Infantry/Aircraft go through FootClass::AI.
         for vt, ai in ((0x7ADDF8, 0x6FB100), (0x7A3540, 0x502D20), (0x79B12C, 0x4147F0),

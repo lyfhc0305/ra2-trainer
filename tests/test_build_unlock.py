@@ -1,6 +1,6 @@
 import unittest
 
-from test_core import HookMemory, ROOT, PE, Cs, CS_ARCH_X86, CS_MODE_32
+from test_core import HookMemory, Cs, CS_ARCH_X86, CS_MODE_32, game_exe
 from trainer import build_unlock
 
 
@@ -11,7 +11,7 @@ class BuildUnlockTests(unittest.TestCase):
             self.p.patch(address, bytes.fromhex(original))
 
     def test_originals_and_trampolines(self):
-        pe = PE(str(ROOT.parent / "游戏本体" / "game.exe"))
+        pe = game_exe()
         cs = Cs(CS_ARCH_X86, CS_MODE_32)
         for index, (name, spec) in enumerate(build_unlock.SITES.items()):
             _fid, address, original, _resume, _bypass = spec

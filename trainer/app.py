@@ -715,7 +715,10 @@ class MainWindow(QMainWindow):
                 self.log(f"[{'开' if on else '关'}] {self.rows[fid].feat['name']}{note}")
                 if attr == "build_unlock" and refresh_sidebar:
                     self._refresh_sidebar_later()
-                elif attr == "power":
+                elif attr == "power" and refresh_sidebar:
+                    # refresh_sidebar=False (profile apply) defers this too:
+                    # a submitted job would make every later switch in that
+                    # loop bail out as busy. reapply_all flushes pending power.
                     self._flush_power_later()
             except Exception as exc:
                 self._switch_failed(fid, controller, self.enabled.get(fid, False))

@@ -3,10 +3,8 @@ import struct
 import unittest
 from unittest.mock import Mock, patch
 
-from test_core import HookMemory, ROOT, PE, disasm_checked
+from test_core import HookMemory, disasm_checked, game_exe
 from trainer import campaign as C, economy as E, weapons as W, psionic as P
-
-GAME = ROOT.parent / "游戏本体" / "game.exe"
 
 
 class Memory(HookMemory):
@@ -28,7 +26,7 @@ class GameBytesTests(unittest.TestCase):
     """Every site and call relationship the hooks depend on, checked in the local game.exe."""
 
     def test_sites_match_local_game(self):
-        pe = PE(str(GAME))
+        pe = game_exe()
         sites = [(C.FRAME_ENTRY, C.FRAME_ORIGINAL)]
         sites += [(a, o) for a, o, _ in E.SITES.values()]
         sites += [(a, o) for a, o, _ in W.SITES.values()]
@@ -36,7 +34,7 @@ class GameBytesTests(unittest.TestCase):
             self.assertEqual(pe.read(address, len(original)), original, hex(address))
 
     def test_call_relationships(self):
-        pe = PE(str(GAME))
+        pe = game_exe()
         self.assertEqual(call_target(pe, 0x540504), C.FRAME_ENTRY)  # once per frame
         self.assertEqual(call_target(pe, 0x6AEBC4), C.HOUSE_WIN)  # trigger "Winner is"
         self.assertEqual(pe.read(0x4E80C4, 3), bytes.fromhex("c20400"))  # Win(bool)
@@ -72,7 +70,7 @@ class GameBytesTests(unittest.TestCase):
 
 class PsionicTests(unittest.TestCase):
     def test_sites_and_callers_in_game(self):
-        pe = PE(str(GAME))
+        pe = game_exe()
         for address, original, _offset, _cmp in P.SITES.values():
             self.assertEqual(pe.read(address, len(original)), original, hex(address))
         self.assertEqual(call_target(pe, 0x6C988E), 0x467F80)  # targeting -> CanCapture
@@ -322,6 +320,25 @@ class ProfileTests(unittest.TestCase):
         w.techno_ai.set.assert_called_with("u_vet3", False)
         w.water_walk.disable.assert_called_once()
         w.reapply_all.assert_called_once_with(sidebar_refresh=True)
+        self.assertFalse(w.jobs.busy)
+
+    def test_attached_profile_turns_off_power_without_busy_bailout(self):
+        # Closing "infinite_power" must not submit its refresh job inside the
+        # synchronous off-loop: later switches would then bail out as busy and
+        # stay enabled (reapply_all only ever re-opens switches).
+        w, app_module = self.window()
+        w.proc = Mock()
+        w.can_write = lambda: True
+        for attr in ("build_unlock", "techno_ai", "water_walk", "economy", "weapons",
+                     "power", "psychic", "tank_repair", "chrono_landing"):
+            setattr(w, attr, Mock(enabled=set()))
+        w.power.pending_refresh = "已开启"
+        w.reapply_all = Mock()
+        for fid in ("chrono_quick_land", "infinite_power", "psy_scan", "tank_auto_repair"):
+            w.enabled[fid] = True
+        w.apply_profile("全部关闭", app_module.BUILTIN_PROFILES["全部关闭"])
+        for fid in ("chrono_quick_land", "infinite_power", "psy_scan", "tank_auto_repair"):
+            self.assertFalse(w.enabled[fid], fid)
         self.assertFalse(w.jobs.busy)
 
     def test_saved_multipliers_are_validated(self):

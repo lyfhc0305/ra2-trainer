@@ -47,11 +47,18 @@ class PatchManager:
             raise
 
     def disable(self, fid):
-        """Restore every site of fid; keep going past failures, then report the first."""
+        """Restore every site of fid; keep going past failures, then report the first.
+
+        Sites still holding the patched bytes but never adopted belong to
+        someone else and are left alone — but reported, so switching the
+        feature off cannot quietly leave the patch in effect.
+        """
         error = None
+        covered = set()
         for va, (owner, before, after) in list(self.owned.items()):
             if owner != fid:
                 continue
+            covered.add(va)
             try:
                 current = self.proc.read(va, len(after))
                 if current == after:
@@ -61,6 +68,16 @@ class PatchManager:
                 del self.owned[va]
             except Exception as exc:
                 error = error or exc
+        for va, _off, on in PATCHES[fid]["sites"]:
+            if va in covered:
+                continue
+            try:
+                current = self.proc.read(va, len(on) // 2)
+            except Exception:
+                continue
+            if current == bytes.fromhex(on):
+                error = error or RuntimeError(f"{PATCHES[fid]['name']}：残留补丁字节非本修改器写入，未还原")
+                break
         if error:
             raise error
 

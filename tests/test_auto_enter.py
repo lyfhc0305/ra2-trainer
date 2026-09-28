@@ -2,13 +2,13 @@ import struct
 import unittest
 from unittest.mock import Mock, patch
 
-from test_core import ROOT, PE, Cs, CS_ARCH_X86, CS_MODE_32, disasm_checked
+from test_core import disasm_checked, game_exe
 from trainer import auto_enter
 
 
 class AutoEnterTests(unittest.TestCase):
     def test_enter_stub_matches_native_abi_and_instruction_boundaries(self):
-        pe = PE(str(ROOT.parent / "游戏本体" / "game.exe"))
+        pe = game_exe()
         self.assertEqual(pe.read(0x6CC2A0, 10), bytes.fromhex("81ec880000005356578b"))
         self.assertEqual(pe.read(0x7A3540 + 0x320, 4), struct.pack("<I", 0x6CC2A0))
         self.assertEqual(pe.read(0x452EB0, 10), bytes.fromhex("568bf1578b8e18040000"))

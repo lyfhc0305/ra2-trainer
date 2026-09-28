@@ -2,7 +2,7 @@ import struct
 import unittest
 
 from test_core import HookMemory
-from test_core import ROOT, PE, Cs, CS_ARCH_X86, CS_MODE_32, disasm_checked
+from test_core import Cs, CS_ARCH_X86, CS_MODE_32, disasm_checked, game_exe
 from trainer import airport_slots as ap
 from trainer import build_unlock
 from trainer.features import FEATURES
@@ -36,7 +36,7 @@ class AirportSlotsTests(unittest.TestCase):
         self.ex = FakeExecutor(self.p)
 
     def test_native_sites_and_branch_boundaries(self):
-        pe = PE(str(ROOT.parent / "游戏本体" / "game.exe"))
+        pe = game_exe()
         cs = Cs(CS_ARCH_X86, CS_MODE_32)
         base = 0x15000000
         all_codes = [(base + ap.TYPE_HELPER, ap.type_helper_code()),

@@ -1,7 +1,7 @@
 import unittest
 
 from test_core import HookMemory
-from test_core import ROOT, PE, Cs, CS_ARCH_X86, CS_MODE_32, disasm_checked
+from test_core import Cs, CS_ARCH_X86, CS_MODE_32, disasm_checked, game_exe
 from trainer import water_walk as ww
 from trainer.features import FEATURES
 
@@ -13,7 +13,7 @@ class WaterWalkTests(unittest.TestCase):
             self.p.patch(address, bytes.fromhex(raw))
 
     def test_native_sites_and_trampoline_boundaries(self):
-        pe = PE(str(ROOT.parent / "游戏本体" / "game.exe"))
+        pe = game_exe()
         cs = Cs(CS_ARCH_X86, CS_MODE_32)
         base = 0x15000000
         helper = ww.qualifier_code(base + ww.HELPER_OFFSET,

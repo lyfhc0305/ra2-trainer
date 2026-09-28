@@ -1,7 +1,7 @@
 import struct
 import unittest
 
-from test_core import Memory, ROOT, PE, Cs, CS_ARCH_X86, CS_MODE_32, disasm_checked
+from test_core import Memory, Cs, CS_ARCH_X86, CS_MODE_32, disasm_checked, game_exe
 from trainer import tank_repair as repair
 
 
@@ -40,7 +40,7 @@ class RepairMemory(Memory):
 
 class TankRepairTests(unittest.TestCase):
     def test_native_rules_and_original_entry(self):
-        pe = PE(str(ROOT.parent / "游戏本体" / "game.exe"))
+        pe = game_exe()
         self.assertEqual(pe.read(repair.AI_ENTRY, len(repair.AI_ORIGINAL)), repair.AI_ORIGINAL)
         p = RepairMemory()
         self.assertEqual(repair.native_repair_settings(p), (8, 15))
