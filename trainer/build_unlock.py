@@ -11,6 +11,8 @@ from .operations import X86
 SITES = {
     "tech_level": ("tech_all", 0x4E372A, "8bb71c010000896c2414", 0x4E3734, 0x4E3832),
     "factory_owner": ("tech_all", 0x5D6078, "8b4c241085c1", 0x5D607E, 0x5D6084),
+    # The bypass skips `mov [esp+0x54],ebp`: nothing reachable from 0x4E3C0C
+    # touches that slot (tools/probe_hook_liveness.py), unlike tech_level's.
     "prerequisites": (("tech_all", "unlock_build"), 0x4E38FC, "8b442424896c2454", 0x4E3904, 0x4E3C0C),
     "canbuild_limit": ("unlock_build", 0x4E3C5A, "8b038bcbff502c", 0x4E3C61, 0x4E38ED),
     "reached_limit": ("unlock_build", 0x4F4F30, "83ec085355", 0x4F4F35, None),

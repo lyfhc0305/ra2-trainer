@@ -62,6 +62,8 @@ def rof_code(base, at):
 
 
 def in_range_code(base, at):
+    # Mid-function, yet EAX/ECX/EDX and flags need no saving: from 0x6C4BDC on
+    # every native path writes them before reading (tools/probe_hook_liveness.py).
     address, original, _ = SITES["in_range"]
     back = address + len(original)
     a = X86()
