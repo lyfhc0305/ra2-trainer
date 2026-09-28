@@ -80,11 +80,17 @@ python main.py
 ## 验证
 
 ```powershell
+pip install -r requirements-dev.txt
 python -m unittest discover -s tests -v
 python -m compileall -q trainer tools
 ```
 
-自动测试不修改游戏。涉及真实战局的测试记录见进度文档；类型属性的战斗效果并未逐一覆盖。
+自动测试不修改游戏，分三层：
+- 纯逻辑与故障注入：只需 Python 与 requirements.txt，任何系统都能运行。
+- CPU 仿真（`*_emulated.py` 等）：需要 unicorn（已列入 requirements-dev.txt）。缺少时跳过；设 `RA2_REQUIRE_EMULATION=1` 则改为失败，CI 即如此。
+- 与本机 game.exe 字节比对：默认读取上一级 `游戏本体/game.exe`，可用 `RA2_GAME_EXE` 指定其他路径。缺少时跳过（原因写在跳过信息里）；设 `RA2_REQUIRE_GAME=1` 则改为失败。游戏文件不进仓库，CI 只跑前两层。
+
+涉及真实战局的测试记录见进度文档；类型属性的战斗效果并未逐一覆盖。
 
 主动运行实机回归前请关闭修改器，保持遭遇战运行：
 `python -m tools.production_live_test`、`python -m tools.protection_live_test`、

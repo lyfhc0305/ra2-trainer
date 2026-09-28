@@ -4,8 +4,10 @@ import ctypes.wintypes as wt
 import struct
 import sys
 
-kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-psapi = ctypes.WinDLL("psapi", use_last_error=True)
+from .winapi import load
+
+kernel32 = load("kernel32")
+psapi = load("psapi")
 
 # Explicit pointer-sized signatures are required when Python is 64-bit.
 def _bind(dll, name, result, *args):

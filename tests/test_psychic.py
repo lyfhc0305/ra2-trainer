@@ -1,7 +1,7 @@
 import struct
 import unittest
 
-from test_core import HookMemory, ROOT, PE, disasm_checked
+from test_core import HookMemory, ROOT, PE, disasm_checked, game_pe
 from trainer import psychic as P
 
 
@@ -11,7 +11,7 @@ class PsychicScanTests(unittest.TestCase):
         self.p.patch(P.DETECT_ENTRY, P.DETECT_ORIGINAL)
 
     def test_game_matches_detection_path(self):
-        pe = PE(str(ROOT.parent / "游戏本体" / "game.exe"))
+        pe = game_pe(self)
         self.assertEqual(pe.read(P.DETECT_ENTRY, len(P.DETECT_ORIGINAL)), P.DETECT_ORIGINAL)
         # Render loop: non-player objects -> detection check -> action lines.
         for call, target in ((0x6A4FFB, P.DETECT_ENTRY), (0x6A5020, 0x4CAB90),

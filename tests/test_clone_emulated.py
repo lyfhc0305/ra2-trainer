@@ -12,6 +12,7 @@ except ImportError:
     HAVE_UNICORN = False
 
 import test_core  # noqa: F401  (sets up the import path)
+from test_core import needs
 from trainer import operations as O
 
 def run(kinds, anchor_cell=(20,20), blocked=set(), house=0x20000000, zone=lambda cell: 1):
@@ -85,7 +86,7 @@ def run(kinds, anchor_cell=(20,20), blocked=set(), house=0x20000000, zone=lambda
 
 
 
-@unittest.skipUnless(HAVE_UNICORN, "unicorn not installed")
+@needs(HAVE_UNICORN, "unicorn not installed")
 class ClonePlacementTests(unittest.TestCase):
     def test_infantry_share_cells_in_one_call(self):
         res, st, ok, _ = run(["inf"] * 9)

@@ -1,6 +1,6 @@
 import unittest
 
-from test_core import HookMemory
+from test_core import HookMemory, game_pe
 from test_core import ROOT, PE, Cs, CS_ARCH_X86, CS_MODE_32, disasm_checked
 from trainer import chrono_landing as chrono
 from trainer.features import FEATURES
@@ -12,7 +12,7 @@ class ChronoLandingTests(unittest.TestCase):
         self.p.patch(chrono.LANDING_SITE, chrono.ORIGINAL)
 
     def test_original_site_and_generated_branch_boundaries(self):
-        pe = PE(str(ROOT.parent / "游戏本体" / "game.exe"))
+        pe = game_pe(self)
         self.assertEqual(pe.read(chrono.LANDING_SITE, len(chrono.ORIGINAL)), chrono.ORIGINAL)
         base = 0x15000000
         code = chrono.landing_code(base)

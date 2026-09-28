@@ -1,0 +1,4 @@
+# Offline tests: pip install -r requirements-dev.txt
+-r requirements.txt
+unicorn>=2.0
+# Last verified together (Windows 11, Python 3.14): PySide6 6.11.2, capstone 5.0.9, unicorn 2.1.4

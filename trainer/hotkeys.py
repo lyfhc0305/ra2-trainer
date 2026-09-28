@@ -8,7 +8,9 @@ from PySide6.QtWidgets import (QApplication, QDialog, QVBoxLayout, QLabel,
     QTableWidget, QTableWidgetItem, QKeySequenceEdit, QDialogButtonBox, QMessageBox,
     QLineEdit)
 
-user32 = ctypes.WinDLL("user32", use_last_error=True)
+from .winapi import load
+
+user32 = load("user32")
 user32.RegisterHotKey.argtypes = [W.HWND, ctypes.c_int, W.UINT, W.UINT]
 user32.RegisterHotKey.restype = W.BOOL
 user32.UnregisterHotKey.argtypes = [W.HWND, ctypes.c_int]

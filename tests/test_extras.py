@@ -3,10 +3,8 @@ import struct
 import unittest
 from unittest.mock import Mock, patch
 
-from test_core import HookMemory, ROOT, PE, disasm_checked
+from test_core import HookMemory, ROOT, PE, disasm_checked, game_pe, needs
 from trainer import campaign as C, economy as E, weapons as W, psionic as P
-
-GAME = ROOT.parent / "游戏本体" / "game.exe"
 
 
 class Memory(HookMemory):
@@ -28,7 +26,7 @@ class GameBytesTests(unittest.TestCase):
     """Every site and call relationship the hooks depend on, checked in the local game.exe."""
 
     def test_sites_match_local_game(self):
-        pe = PE(str(GAME))
+        pe = game_pe(self)
         sites = [(C.FRAME_ENTRY, C.FRAME_ORIGINAL)]
         sites += [(a, o) for a, o, _ in E.SITES.values()]
         sites += [(a, o) for a, o, _ in W.SITES.values()]
@@ -36,7 +34,7 @@ class GameBytesTests(unittest.TestCase):
             self.assertEqual(pe.read(address, len(original)), original, hex(address))
 
     def test_call_relationships(self):
-        pe = PE(str(GAME))
+        pe = game_pe(self)
         self.assertEqual(call_target(pe, 0x540504), C.FRAME_ENTRY)  # once per frame
         self.assertEqual(call_target(pe, 0x6AEBC4), C.HOUSE_WIN)  # trigger "Winner is"
         self.assertEqual(pe.read(0x4E80C4, 3), bytes.fromhex("c20400"))  # Win(bool)
@@ -72,7 +70,7 @@ class GameBytesTests(unittest.TestCase):
 
 class PsionicTests(unittest.TestCase):
     def test_sites_and_callers_in_game(self):
-        pe = PE(str(GAME))
+        pe = game_pe(self)
         for address, original, _offset, _cmp in P.SITES.values():
             self.assertEqual(pe.read(address, len(original)), original, hex(address))
         self.assertEqual(call_target(pe, 0x6C988E), 0x467F80)  # targeting -> CanCapture
@@ -217,7 +215,7 @@ except ImportError:
     HAVE_UNICORN = False
 
 
-@unittest.skipUnless(HAVE_UNICORN, "unicorn not installed")
+@needs(HAVE_UNICORN, "unicorn not installed")
 class EmulatedStubTests(unittest.TestCase):
     """Run the generated code on a CPU emulator with a fake player and objects."""
 

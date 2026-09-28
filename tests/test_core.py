@@ -1,4 +1,5 @@
 import ctypes
+import os
 import struct
 import sys
 import unittest
@@ -17,6 +18,31 @@ from trainer.executor import build_trampoline, HOOK, ORIGINAL
 from trainer import power
 from pe import PE
 from capstone import Cs, CS_ARCH_X86, CS_MODE_32
+
+# The game executable is not part of the repository. Set RA2_GAME_EXE to use
+# another copy; RA2_REQUIRE_GAME=1 turns a missing file into a failure.
+GAME_EXE = Path(os.environ.get("RA2_GAME_EXE") or ROOT.parent / "游戏本体" / "game.exe")
+
+
+def required(env):
+    return os.environ.get(env) == "1"
+
+
+def game_pe(test):
+    """PE of the local RA2 1.006 game.exe, or skip the calling test when it is absent."""
+    if not GAME_EXE.is_file():
+        reason = f"未找到 {GAME_EXE}（设置 RA2_GAME_EXE 指向本机 game.exe）"
+        if required("RA2_REQUIRE_GAME"):
+            test.fail(reason)
+        test.skipTest(reason)
+    return PE(str(GAME_EXE))
+
+
+def needs(available, reason, env="RA2_REQUIRE_EMULATION"):
+    """skipUnless, except that env=1 (CI) turns the missing dependency into a failure."""
+    if not available and required(env):
+        raise RuntimeError(f"{reason}（{env}=1 要求必须运行）")
+    return unittest.skipUnless(available, reason)
 
 
 def disasm_checked(test, code, base):
@@ -159,7 +185,7 @@ class ObjectTests(unittest.TestCase):
 
     def test_local_executable_appends_technos_to_array(self):
         # TechnoClass ctor: Items[Count++] = this, on the vector read by units.
-        pe = PE(str(ROOT.parent / "游戏本体" / "game.exe"))
+        pe = game_pe(self)
         code = pe.read(0x6C121C, 0x18)
         count = struct.pack("<I", units.TECHNO_COUNT).hex()
         items = struct.pack("<I", units.TECHNO_ARRAY).hex()
@@ -189,6 +215,17 @@ class ObjectTests(unittest.TestCase):
             units.techno_pointers(p)
         p.patch(units.TECHNO_COUNT, bytes(4))
         self.assertEqual(units.techno_pointers(p), [])
+
+
+class WinApiTests(unittest.TestCase):
+    def test_modules_import_without_windll(self):
+        from trainer import winapi
+        with patch.object(winapi.ctypes, "WinDLL", None, create=True):
+            dll = winapi.load("kernel32")
+        fn = dll.ReadProcessMemory
+        fn.restype, fn.argtypes = ctypes.c_int, ()
+        self.assertIs(dll.ReadProcessMemory, fn)
+        self.assertEqual(fn(1, 2, 3), 0)  # every call reports failure
 
 
 RET = bytes([0xC3])
@@ -319,7 +356,7 @@ class RemoteCallTests(unittest.TestCase):
 
 class HookTests(unittest.TestCase):
     def test_local_executable_matches_hook_signatures(self):
-        p = PE(str(ROOT.parent / "游戏本体" / "game.exe"))
+        p = game_pe(self)
         self.assertEqual(p.read(HOOK, len(ORIGINAL)), ORIGINAL)
         self.assertEqual(p.read(power.HOOK, len(power.ORIGINAL)), power.ORIGINAL)
 

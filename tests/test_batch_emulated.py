@@ -12,6 +12,7 @@ except ImportError:
     HAVE_UNICORN = False
 
 import test_core  # noqa: F401
+from test_core import needs
 from trainer import auto_enter as AE, operations as O
 from trainer.addresses import PLAYER_PTR, INFANTRY_VT, BUILDING_VT, HOUSE_VT
 
@@ -31,7 +32,7 @@ def call(mu,block,code_len_ok=True):
 
 
 
-@unittest.skipUnless(HAVE_UNICORN, "unicorn not installed")
+@needs(HAVE_UNICORN, "unicorn not installed")
 class BatchCommandTests(unittest.TestCase):
     def test_garrison_batch(self):
         # ---------- garrison ----------
