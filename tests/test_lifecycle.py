@@ -228,6 +228,38 @@ class SelectionTests(unittest.TestCase):
             self.assertEqual(units.selected_technos(p, own=True), [(unit, 0x7ADDF8)])
             self.assertEqual(len(units.selected_technos(p)), 2)
 
+    def enemy_selected(self, player):
+        p = TypeMemory()
+        enemy = 0x7000
+        if player is not None:
+            p.patch(units.PLAYER_PTR, struct.pack("<I", player))
+        p.patch(units.SELECTED_DATA, struct.pack("<I", 0x8000))
+        p.patch(units.SELECTED_COUNT, struct.pack("<I", 1))
+        p.patch(0x8000, struct.pack("<I", enemy))
+        p.patch(enemy, struct.pack("<I", 0x7ADDF8))
+        p.patch(enemy + 0x1B4, struct.pack("<I", 0x9000))
+        p.patch(enemy + 0x6C, struct.pack("<I", 100))
+        p.patch(enemy + 0x77, bytes([1]))
+        return p, enemy
+
+    def test_unknown_player_never_widens_own_selection(self):
+        for player in (None, 0):  # read failed / not in a match
+            p, enemy = self.enemy_selected(player)
+            self.assertEqual(units.selected_technos(p, own=True), [], player)
+            self.assertFalse(units.valid_techno(p, enemy, 0x7ADDF8, player))
+            self.assertTrue(units.valid_techno(p, enemy, 0x7ADDF8))  # explicit "any owner"
+            with self.assertRaises(RuntimeError):
+                units.require_player_house(p)
+
+    def test_write_fields_rechecks_owner_and_skips_unknown_house(self):
+        from trainer.app import write_fields
+        p, enemy = self.enemy_selected(0x5000)
+        fields = [(0x6C, "i32")]
+        self.assertEqual(write_fields(p, [(enemy, 0x7ADDF8)], fields, 1, None), 0)
+        self.assertEqual(write_fields(p, [(enemy, 0x7ADDF8)], fields, 1, 0x5000), 0)
+        self.assertEqual(p.read_u32(enemy + 0x6C), 100)
+        self.assertEqual(write_fields(p, [(enemy, 0x7ADDF8)], fields, 1, 0x9000), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

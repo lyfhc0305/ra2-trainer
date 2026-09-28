@@ -379,6 +379,7 @@ class GameOperations:
         anchor = self.world_at_screen((cursor_x, cursor_y))
         if anchor is None:
             raise ValueError("鼠标位置无法转换为可放置的地图坐标")
+        units.require_player_house(p)
         selected = units.selected_technos(p, own=True)
         if not selected:
             raise ValueError("请先在游戏中选中己方载具或步兵")

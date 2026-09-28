@@ -33,6 +33,7 @@ class TypeEditor:
         return self.proc.read_u32(typ), self.proc.read_cstr(typ + ID_OFFSET, 25)
 
     def targets(self):
+        units.require_player_house(self.proc)
         targets = {units.type_of(self.proc, a, vt)
                    for a, vt in units.selected_technos(self.proc, own=True)}
         targets.discard(None)

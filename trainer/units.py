@@ -15,9 +15,21 @@ from .addresses import (PLAYER_PTR, SELECTED_COUNT, SELECTED_DATA, SUPER_VT, TEC
 # 游戏里同时存在的技术类对象远少于此；超出说明读到的不是这个向量。
 MAX_TECHNOS = 0x10000
 
+# valid_techno(house=ANY_OWNER) skips the owner check on purpose. Any other
+# falsy house (None = read failed, 0 = no player) means "owner unknown" and
+# never matches, so a failed player read can't widen "own units" to everyone.
+ANY_OWNER = object()
+
 
 def player_house(proc):
     return proc.read_u32(PLAYER_PTR)
+
+
+def require_player_house(proc):
+    house = player_house(proc)
+    if not house:
+        raise RuntimeError("无法识别玩家势力（未进入战局或读取失败），已停止对己方单位的操作")
+    return house
 
 
 def techno_pointers(proc):
@@ -71,11 +83,12 @@ def clear_cache(proc):
     proc._unit_cache = None
 
 
-def valid_techno(proc, addr, vt, house=None):
+def valid_techno(proc, addr, vt, house=ANY_OWNER):
     """Recheck identity before writing cached pointers; this reduces stale writes."""
     if proc.read_u32(addr) != vt or vt not in O.TECHNO_VT:
         return False
-    if house is not None and proc.read_u32(addr + TECHNO_FIELD["Owner"]) != house:
+    if house is not ANY_OWNER and (not house
+                                   or proc.read_u32(addr + TECHNO_FIELD["Owner"]) != house):
         return False
     hp = proc.read_i32(addr + TECHNO_FIELD["Health"])
     return hp is not None and hp > 0
@@ -98,8 +111,12 @@ def selection(proc):
 
 
 def selected_technos(proc, own=False):
-    """Selected technos; reads only the selection, never scans the heap."""
-    house = player_house(proc) if own else None
+    """Selected technos; reads only the selection, never scans the heap.
+
+    own=True with an unknown player returns nothing rather than every selection."""
+    house = player_house(proc) if own else ANY_OWNER
+    if own and not house:
+        return []
     try:
         objects = selection(proc)
     except (RuntimeError, OSError):

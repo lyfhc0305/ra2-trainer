@@ -151,11 +151,14 @@ BUILTIN_PROFILES = {
 REPORTS_STATE = {"invincible", "infinite_power"}
 
 
-def write_fields(proc, targets, fields, value, house=None):
-    """Write value into each target's fields; return how many were fully written."""
+def write_fields(proc, targets, fields, value, house):
+    """Write value into each target's fields; return how many were fully written.
+
+    Every target is rechecked (vtable, HP and owner) right before the write;
+    an unknown house (None/0) writes nothing."""
     n = 0
     for a, vt in targets:
-        if house is not None and not units.valid_techno(proc, a, vt, house):
+        if not units.valid_techno(proc, a, vt, house):
             continue
         ok = True
         for off, kind in fields:
@@ -785,7 +788,8 @@ class MainWindow(QMainWindow):
                     n += (self.proc.write_i32(a + 0x6C, healed)
                           and self.proc.write_i32(a + 0x70, healed))
             return n
-        return write_fields(self.proc, targets, spec["fields"], spec["value"])
+        return write_fields(self.proc, targets, spec["fields"], spec["value"],
+                            units.player_house(self.proc))
 
     def reapply_all(self, sidebar_refresh=False):
         """周期性校验已开启补丁的字节，必要时重写；同时刷新「持续生效」功能。"""
@@ -1260,7 +1264,9 @@ class MainWindow(QMainWindow):
 
             def work():
                 targets = units.player_technos(proc)
-                return write_fields(proc, targets, spec["fields"], spec["value"]), len(targets)
+                house = units.player_house(proc)
+                return (write_fields(proc, targets, spec["fields"], spec["value"], house),
+                        len(targets))
 
             def done(result):
                 n, total = result
