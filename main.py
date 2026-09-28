@@ -25,6 +25,9 @@ def check_environment():
 
 
 def start():
+    if len(sys.argv) == 3 and sys.argv[1] == "--self-test":
+        from trainer.selftest import run
+        return run(sys.argv[2])
     if len(sys.argv) == 2 and sys.argv[1] == "--check":
         return check_environment()
     if len(sys.argv) != 1:

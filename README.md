@@ -1,10 +1,21 @@
-# 红警2修改器 v0.3
+# 红警2修改器 v0.3.0
 
-面向红色警戒2原版 **1.006 / game.exe**，Windows，Python 3.10 或更新版本 + PySide6。
+面向红色警戒2原版 **1.006 / game.exe**。EXE发行版适用于64位 Windows 10/11，无需安装 Python；源码运行需要 Python 3.10 或更新版本 + PySide6。不支持尤里的复仇 `gamemd.exe`。
 
 说明核对日期：2026-09-29。功能已接入不等于已完成全部实机验证，具体限制见下文及进度记录。
 
 ## 启动
+
+### EXE发行版（推荐）
+
+从 [GitHub Releases](https://github.com/lyfhc0305/ra2-trainer/releases) 下载 `RA2Trainer-v0.3.0-windows-x64.exe`，双击即可运行；也可下载包含 EXE 和本说明的 ZIP，解压后运行 `RA2Trainer.exe`。发行文件不包含游戏本体和个人设置。
+
+- 把 EXE 放到自己可写入的文件夹。设置保存在 EXE 同目录的 `.state.json`，只有点击“保存当前功能状态”才保存功能状态；移动程序时可一起移动该文件。
+- 可先手动启动红警2并进入单机战局，修改器会自动附加。若想使用修改器里的启动游戏按钮，将 `游戏本体` 文件夹放在 EXE 同目录或上一级目录，也可把 EXE 直接放进有 `ra2.exe` 的游戏目录。
+- 更新时先关闭旧修改器，再替换 EXE，保留自己的 `.state.json`；首次单文件启动需要解压内置运行库，可能稍等几秒。
+- EXE尚未做代码签名。发布页同时提供 `SHA256SUMS.txt`，可用 `Get-FileHash -Algorithm SHA256 文件路径` 核对下载文件。
+
+### 源码运行
 
 在上一级文件夹双击 **启动红警2修改器.cmd** 即可启动；它会自动查找 Python、检查依赖并保持错误提示可见，不需要先打开命令行。重复双击只会提示已有窗口，不会同时附加两个修改器。首次使用若提示缺少依赖，按提示在`ra2-trainer`目录安装`requirements.txt`；启动脚本不会自行下载。
 
@@ -109,3 +120,18 @@ python -m compileall -q trainer tools
 `water_walk.py` 水面行走与跨水面集结；`auto_enter.py` 选中步兵进驻；`airport_slots.py` 机场机位；
 `campaign.py` 战役；`economy.py` 经济；`weapons.py` 射速与射程；`psychic.py` 心灵探测；`psionic.py` 反尤里控制；
 `typeedit.py` 类型属性编辑；`units.py` 对象枚举；`tests/` 回归测试。
+
+## 构建Windows发行版
+
+在64位 Windows 和64位 Python 环境中，从项目目录执行：
+
+```powershell
+python -m pip install -r requirements-build.txt
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/build_release.ps1
+```
+
+`dist/RA2Trainer.exe` 为单文件程序；`release/` 输出带版本号的 EXE、ZIP 和 SHA-256 校验清单。构建不会打包游戏、个人设置或测试数据；这些输出目录不提交到 Git，发行文件上传到 GitHub Releases。
+
+可执行 `RA2Trainer.exe --self-test 报告.json` 检查打包后的界面、69项功能清单与反汇编库是否能够加载。该模式不读取个人设置、不附加游戏，检查后自动关闭并写入 JSON 报告；它不替代游戏内功能验证。
+
+打包路径及外部游戏启动的适配依据：[PyInstaller运行时说明](https://pyinstaller.org/en/stable/runtime-information.html)、[外部程序启动注意事项](https://pyinstaller.org/en/stable/common-issues-and-pitfalls.html#launching-external-programs-from-the-frozen-application)。

@@ -5,7 +5,6 @@
 import json
 import math
 import os
-import subprocess
 import sys
 import time
 
@@ -43,11 +42,12 @@ from .weapons import WeaponController
 from .psionic import PsionicShieldController
 from .jobs import Jobs
 from .hotkeys import Hotkeys, HotkeyDialog, foreground_pid
+from . import runtime
 
 APP_NAME = "RA2修改器"
-APP_VER = "v0.3"
-GAME_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "游戏本体"))
-STATE_FILE = os.path.join(os.path.dirname(__file__), "..", ".state.json")
+APP_VER = "v" + runtime.VERSION
+GAME_DIR = str(runtime.game_dir())
+STATE_FILE = str(runtime.app_dir() / ".state.json")
 BUSY_MESSAGE = "后台操作进行中，请稍后重试"
 SAVED_MARK = "_saved_by_user"  # only files from the save button restore feature state
 
@@ -1334,7 +1334,7 @@ class MainWindow(QMainWindow):
             self.log(f"找不到启动器 {exe}")
             return
         try:
-            subprocess.Popen(exe, cwd=GAME_DIR)
+            runtime.launch_game(exe)
             self.log("已启动 ra2.exe；进入单机战局后自动附加")
         except Exception as e:
             self.log(f"启动失败: {e}")
